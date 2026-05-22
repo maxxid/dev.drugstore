@@ -9,6 +9,7 @@ const compraRoutes = require('./routes/compras');
 const proveedorRoutes = require('./routes/proveedores');
 const reporteRoutes = require('./routes/reportes');
 const cierreRoutes = require('./routes/cierres');
+const insightRoutes = require('./routes/insights');
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api/compras', compraRoutes);
 app.use('/api/proveedores', proveedorRoutes);
 app.use('/api/reportes', reporteRoutes);
 app.use('/api/cierres', cierreRoutes);
+app.use('/api/insights', insightRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

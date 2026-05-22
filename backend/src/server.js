@@ -1,5 +1,6 @@
 const app = require('./app');
 const { sequelize, Rol, MetodoPago, Usuario } = require('./models');
+const { iniciarScheduledJobs } = require('./services/scheduler');
 
 const PORT = process.env.PORT || 3001;
 
@@ -46,6 +47,7 @@ async function start() {
     app.listen(PORT, () => {
       console.log(`Servidor corriendo en http://localhost:${PORT}`);
       console.log(`Health: http://localhost:${PORT}/health`);
+      iniciarScheduledJobs();
     });
   } catch (error) {
     console.error('Error al iniciar:', error);

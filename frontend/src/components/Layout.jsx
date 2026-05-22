@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, ShoppingCart, Package, BarChart3, Truck, Users, ClipboardList, Settings } from 'lucide-react';
+import { LogOut, ShoppingCart, Package, BarChart3, Truck, Users, ClipboardList, Settings, Brain } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: BarChart3, label: 'Dashboard' },
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/compras', icon: Truck, label: 'Compras' },
   { to: '/proveedores', icon: Users, label: 'Proveedores' },
   { to: '/reportes', icon: Settings, label: 'Reportes' },
+  { to: '/insights', icon: Brain, label: 'IA Insights' },
 ];
 
 export default function Layout() {

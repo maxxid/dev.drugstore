@@ -10,6 +10,7 @@ import Compras from './pages/Compras';
 import Proveedores from './pages/Proveedores';
 import Reportes from './pages/Reportes';
 import CierreCaja from './pages/CierreCaja';
+import Insights from './pages/Insights';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="/proveedores" element={<Proveedores />} />
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/cierres" element={<CierreCaja />} />
+        <Route path="/insights" element={<Insights />} />
       </Route>
     </Routes>
   );
