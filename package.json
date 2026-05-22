@@ -1,0 +1,41 @@
+{
+  "name": "kiosko-manager",
+  "version": "1.0.0",
+  "description": "Sistema de gestion para kioskos - POS + Inventario + IA Insights",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build:frontend": "cd frontend && npm run build",
+    "electron:dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build:frontend && electron-builder",
+    "start": "npm run dev"
+  },
+  "build": {
+    "appId": "com.kiosko.manager",
+    "productName": "Kiosko Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "backend/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.3"
+  }
+}
