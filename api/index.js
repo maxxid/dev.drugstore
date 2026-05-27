@@ -159,6 +159,34 @@ const ProductoProveedor = sequelize.define('ProductoProveedor', {
   indexes: [{ unique: true, fields: ['producto_id', 'proveedor_id'] }],
 });
 
+const Oferta = sequelize.define('Oferta', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  producto_id: { type: DataTypes.INTEGER, allowNull: false },
+  tipo: { type: DataTypes.ENUM('porcentaje', 'fijo'), allowNull: false },
+  valor: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  fecha_inicio: { type: DataTypes.DATEONLY, allowNull: false },
+  fecha_fin: { type: DataTypes.DATEONLY, allowNull: false },
+  activo: { type: DataTypes.BOOLEAN, defaultValue: true },
+  descripcion: { type: DataTypes.STRING(200) },
+}, { tableName: 'ofertas', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
+const Remito = sequelize.define('Remito', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  tipo: { type: DataTypes.ENUM('entrada', 'salida'), allowNull: false },
+  proveedor_id: { type: DataTypes.INTEGER },
+  usuario_id: { type: DataTypes.INTEGER, allowNull: false },
+  fecha: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+  numero: { type: DataTypes.STRING(20), allowNull: false, unique: true },
+  observaciones: { type: DataTypes.TEXT },
+}, { tableName: 'remitos', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+const DetalleRemito = sequelize.define('DetalleRemito', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  remito_id: { type: DataTypes.INTEGER, allowNull: false },
+  producto_id: { type: DataTypes.INTEGER, allowNull: false },
+  cantidad: { type: DataTypes.INTEGER, allowNull: false },
+}, { tableName: 'detalle_remitos', timestamps: false });
+
 Categoria.hasMany(Producto, { foreignKey: 'categoria_id' });
 Producto.belongsTo(Categoria, { foreignKey: 'categoria_id' });
 Proveedor.hasMany(Compra, { foreignKey: 'proveedor_id' });
@@ -185,6 +213,16 @@ Producto.hasMany(ProductoProveedor, { foreignKey: 'producto_id' });
 ProductoProveedor.belongsTo(Producto, { foreignKey: 'producto_id' });
 Proveedor.hasMany(ProductoProveedor, { foreignKey: 'proveedor_id' });
 ProductoProveedor.belongsTo(Proveedor, { foreignKey: 'proveedor_id' });
+Producto.hasMany(Oferta, { foreignKey: 'producto_id' });
+Oferta.belongsTo(Producto, { foreignKey: 'producto_id' });
+Remito.hasMany(DetalleRemito, { foreignKey: 'remito_id' });
+DetalleRemito.belongsTo(Remito, { foreignKey: 'remito_id' });
+Producto.hasMany(DetalleRemito, { foreignKey: 'producto_id' });
+DetalleRemito.belongsTo(Producto, { foreignKey: 'producto_id' });
+Usuario.hasMany(Remito, { foreignKey: 'usuario_id' });
+Remito.belongsTo(Usuario, { foreignKey: 'usuario_id' });
+Proveedor.hasMany(Remito, { foreignKey: 'proveedor_id' });
+Remito.belongsTo(Proveedor, { foreignKey: 'proveedor_id' });
 
 // ─── Auth Middleware ───
 const auth = async (req, res, next) => {
@@ -254,6 +292,7 @@ app.get('/api/productos', auth, async (req, res) => {
     const include = [
       { model: Categoria, attributes: ['nombre'] },
       { model: ProductoProveedor, include: [{ model: Proveedor, attributes: ['id', 'nombre'] }], separate: true },
+      { model: Oferta, where: { activo: true, fecha_inicio: { [Op.lte]: new Date().toISOString().split('T')[0] }, fecha_fin: { [Op.gte]: new Date().toISOString().split('T')[0] } }, required: false, separate: true },
     ];
 
     if (proveedor_id) {
@@ -439,29 +478,55 @@ app.post('/api/ventas', auth, async (req, res) => {
   try {
     const { items, metodo_pago_id } = req.body;
     let totalVenta = 0;
+    let totalDescuento = 0;
     const detalles = [];
+    const hoy = new Date().toISOString().split('T')[0];
 
     for (const item of items) {
       const producto = await Producto.findByPk(item.producto_id, { transaction });
       if (!producto) throw new Error(`Producto ID ${item.producto_id} no encontrado`);
       if (producto.stock < item.cantidad) throw new Error(`Stock insuficiente para "${producto.nombre}"`);
-      const subtotal = parseFloat((producto.precio_venta * item.cantidad).toFixed(2));
+
+      let precioUnitario = parseFloat(producto.precio_venta);
+
+      const oferta = await Oferta.findOne({
+        where: {
+          producto_id: item.producto_id,
+          activo: true,
+          fecha_inicio: { [Op.lte]: hoy },
+          fecha_fin: { [Op.gte]: hoy },
+        },
+        transaction,
+      });
+
+      if (oferta) {
+        if (oferta.tipo === 'porcentaje') {
+          precioUnitario = parseFloat((precioUnitario * (1 - parseFloat(oferta.valor) / 100)).toFixed(2));
+        } else {
+          precioUnitario = parseFloat((precioUnitario - parseFloat(oferta.valor)).toFixed(2));
+          if (precioUnitario < 0) precioUnitario = 0;
+        }
+        totalDescuento += parseFloat((parseFloat(producto.precio_venta) - precioUnitario) * item.cantidad);
+      }
+
+      const subtotal = parseFloat((precioUnitario * item.cantidad).toFixed(2));
       totalVenta += subtotal;
-      detalles.push({ producto, cantidad: item.cantidad, subtotal });
+      detalles.push({ producto, cantidad: item.cantidad, precio_venta: precioUnitario, subtotal, oferta });
     }
 
+    totalVenta = parseFloat(totalVenta.toFixed(2));
     const numeroTicket = `T-${Date.now().toString().slice(-8)}`;
-    const venta = await Venta.create({ usuario_id: req.usuario.id, metodo_pago_id, total: parseFloat(totalVenta.toFixed(2)), numero_ticket: numeroTicket }, { transaction });
+    const venta = await Venta.create({ usuario_id: req.usuario.id, metodo_pago_id, total: totalVenta, numero_ticket: numeroTicket }, { transaction });
 
     for (const d of detalles) {
-      await DetalleVenta.create({ venta_id: venta.id, producto_id: d.producto.id, cantidad: d.cantidad, precio_venta: d.producto.precio_venta, subtotal: d.subtotal }, { transaction });
+      await DetalleVenta.create({ venta_id: venta.id, producto_id: d.producto.id, cantidad: d.cantidad, precio_venta: d.precio_venta, subtotal: d.subtotal }, { transaction });
       await d.producto.update({ stock: d.producto.stock - d.cantidad }, { transaction });
       await StockMovimiento.create({ producto_id: d.producto.id, tipo: 'salida', cantidad: d.cantidad, motivo: `Venta #${numeroTicket}`, usuario_id: req.usuario.id }, { transaction });
     }
 
     await transaction.commit();
     const ventaCompleta = await Venta.findByPk(venta.id, { include: [{ model: DetalleVenta, include: [{ model: Producto, attributes: ['nombre', 'codigo_barras'] }] }, { model: MetodoPago, attributes: ['nombre'] }] });
-    res.status(201).json(ventaCompleta);
+    res.status(201).json({ ...ventaCompleta.toJSON(), total_descuento: totalDescuento });
   } catch (error) {
     await transaction.rollback();
     res.status(error.message.includes('no encontrado') || error.message.includes('insuficiente') ? 400 : 500).json({ error: error.message });
@@ -678,5 +743,117 @@ function parseCSVLine(line) {
   result.push(current);
   return result;
 }
+
+// ─── Ofertas ───
+app.get('/api/ofertas', auth, async (req, res) => {
+  try {
+    const ofertas = await Oferta.findAll({
+      include: [{ model: Producto, attributes: ['nombre', 'codigo_barras'] }],
+      order: [['created_at', 'DESC']],
+    });
+    res.json(ofertas);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/ofertas', auth, async (req, res) => {
+  try {
+    const oferta = await Oferta.create(req.body);
+    res.status(201).json(oferta);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/ofertas/:id', auth, async (req, res) => {
+  try {
+    const oferta = await Oferta.findByPk(req.params.id);
+    if (!oferta) return res.status(404).json({ error: 'Oferta no encontrada' });
+    await oferta.update(req.body);
+    res.json(oferta);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/ofertas/:id', auth, async (req, res) => {
+  try {
+    const oferta = await Oferta.findByPk(req.params.id);
+    if (!oferta) return res.status(404).json({ error: 'Oferta no encontrada' });
+    await oferta.update({ activo: false });
+    res.json({ message: 'Oferta desactivada' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// ─── Remitos ───
+app.get('/api/remitos', auth, async (req, res) => {
+  try {
+    const remitos = await Remito.findAll({
+      include: [
+        { model: DetalleRemito, include: [{ model: Producto, attributes: ['nombre', 'codigo_barras'] }] },
+        { model: Proveedor, attributes: ['nombre'] },
+        { model: Usuario, attributes: ['nombre'] },
+      ],
+      order: [['created_at', 'DESC']],
+      limit: 100,
+    });
+    res.json(remitos);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/remitos', auth, async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { tipo, proveedor_id, items, observaciones } = req.body;
+    const fecha = new Date();
+    const numero = `R-${tipo === 'entrada' ? 'E' : 'S'}-${Date.now().toString().slice(-8)}`;
+
+    const remito = await Remito.create({
+      tipo, proveedor_id: proveedor_id || null, usuario_id: req.usuario.id,
+      fecha, numero, observaciones: observaciones || '',
+    }, { transaction });
+
+    for (const item of items) {
+      const producto = await Producto.findByPk(item.producto_id, { transaction });
+      if (!producto) throw new Error(`Producto ID ${item.producto_id} no encontrado`);
+
+      await DetalleRemito.create({
+        remito_id: remito.id, producto_id: item.producto_id, cantidad: item.cantidad,
+      }, { transaction });
+
+      const delta = tipo === 'entrada' ? item.cantidad : -item.cantidad;
+      await producto.update({ stock: producto.stock + delta }, { transaction });
+
+      await StockMovimiento.create({
+        producto_id: item.producto_id,
+        tipo: tipo,
+        cantidad: item.cantidad,
+        motivo: `Remito #${numero}`,
+        usuario_id: req.usuario.id,
+      }, { transaction });
+    }
+
+    await transaction.commit();
+    const remitoCompleto = await Remito.findByPk(remito.id, {
+      include: [
+        { model: DetalleRemito, include: [{ model: Producto, attributes: ['nombre', 'codigo_barras'] }] },
+        { model: Proveedor, attributes: ['nombre'] },
+      ],
+    });
+    res.status(201).json(remitoCompleto);
+  } catch (error) {
+    await transaction.rollback();
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/remitos/:id', auth, async (req, res) => {
+  try {
+    const remito = await Remito.findByPk(req.params.id, {
+      include: [
+        { model: DetalleRemito, include: [{ model: Producto, attributes: ['nombre', 'codigo_barras'] }] },
+        { model: Proveedor, attributes: ['nombre'] },
+        { model: Usuario, attributes: ['nombre'] },
+      ],
+    });
+    if (!remito) return res.status(404).json({ error: 'Remito no encontrado' });
+    res.json(remito);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
 
 module.exports = app;

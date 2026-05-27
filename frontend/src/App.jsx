@@ -11,6 +11,7 @@ import Proveedores from './pages/Proveedores';
 import Reportes from './pages/Reportes';
 import CierreCaja from './pages/CierreCaja';
 import Insights from './pages/Insights';
+import Remitos from './pages/Remitos';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -38,6 +39,7 @@ function AppRoutes() {
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/cierres" element={<CierreCaja />} />
         <Route path="/insights" element={<Insights />} />
+        <Route path="/remitos" element={<Remitos />} />
       </Route>
     </Routes>
   );

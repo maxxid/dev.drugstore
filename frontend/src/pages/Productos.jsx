@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
-import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload, Loader2, Users, Clock, ChevronDown, Filter } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload, Loader2, Users, ChevronDown, Filter, Percent } from 'lucide-react';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -21,6 +21,9 @@ export default function Productos() {
   const [historialProducto, setHistorialProducto] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
+  const [ofertaProducto, setOfertaProducto] = useState(null);
+  const [ofertaForm, setOfertaForm] = useState({ tipo: 'porcentaje', valor: '', fecha_inicio: '', fecha_fin: '', descripcion: '' });
+  const [savingOferta, setSavingOferta] = useState(false);
   const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
@@ -173,6 +176,52 @@ export default function Productos() {
     }
   };
 
+  const abrirOferta = (producto) => {
+    setOfertaProducto(producto);
+    const activa = producto.Oferta?.[0];
+    setOfertaForm(activa ? {
+      tipo: activa.tipo, valor: activa.valor,
+      fecha_inicio: activa.fecha_inicio, fecha_fin: activa.fecha_fin,
+      descripcion: activa.descripcion || '',
+    } : { tipo: 'porcentaje', valor: '', fecha_inicio: '', fecha_fin: '', descripcion: '' });
+  };
+
+  const guardarOferta = async () => {
+    if (!ofertaProducto) return;
+    setSavingOferta(true);
+    try {
+      const activa = ofertaProducto.Oferta?.[0];
+      if (activa) {
+        await api.put(`/ofertas/${activa.id}`, ofertaForm);
+        setToast({ type: 'success', message: 'Oferta actualizada' });
+      } else {
+        await api.post('/ofertas', { ...ofertaForm, producto_id: ofertaProducto.id });
+        setToast({ type: 'success', message: 'Oferta creada' });
+      }
+      load();
+      setOfertaProducto(null);
+    } catch (err) {
+      setToast({ type: 'error', message: err.response?.data?.error || 'Error al guardar oferta' });
+    } finally {
+      setSavingOferta(false);
+    }
+  };
+
+  const desactivarOferta = async () => {
+    if (!ofertaProducto?.Oferta?.[0]) return;
+    setSavingOferta(true);
+    try {
+      await api.delete(`/ofertas/${ofertaProducto.Oferta[0].id}`);
+      setToast({ type: 'success', message: 'Oferta desactivada' });
+      load();
+      setOfertaProducto(null);
+    } catch (err) {
+      setToast({ type: 'error', message: 'Error al desactivar oferta' });
+    } finally {
+      setSavingOferta(false);
+    }
+  };
+
   return (
     <div>
       <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
@@ -210,6 +259,65 @@ export default function Productos() {
             </tbody>
           </table>
         )}
+      </Modal>
+
+      <Modal
+        open={!!ofertaProducto}
+        onClose={() => setOfertaProducto(null)}
+        title={`Oferta: ${ofertaProducto?.nombre || ''}`}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-500 mb-1">Tipo</label>
+            <select value={ofertaForm.tipo} onChange={(e) => setOfertaForm({ ...ofertaForm, tipo: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="porcentaje">Porcentaje (%)</option>
+              <option value="fijo">Monto fijo ($)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-slate-500 mb-1">
+              {ofertaForm.tipo === 'porcentaje' ? 'Porcentaje (%)' : 'Descuento ($)'}
+            </label>
+            <input type="number" step="0.01" min="0" value={ofertaForm.valor}
+              onChange={(e) => setOfertaForm({ ...ofertaForm, valor: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={ofertaForm.tipo === 'porcentaje' ? 'Ej: 20' : 'Ej: 500'} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-slate-500 mb-1">Fecha inicio</label>
+              <input type="date" value={ofertaForm.fecha_inicio}
+                onChange={(e) => setOfertaForm({ ...ofertaForm, fecha_inicio: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-500 mb-1">Fecha fin</label>
+              <input type="date" value={ofertaForm.fecha_fin}
+                onChange={(e) => setOfertaForm({ ...ofertaForm, fecha_fin: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-slate-500 mb-1">Descripcion</label>
+            <input value={ofertaForm.descripcion} onChange={(e) => setOfertaForm({ ...ofertaForm, descripcion: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Ej: 2x1, verano, etc." />
+          </div>
+          <div className="flex gap-2 justify-end pt-2 border-t">
+            {ofertaProducto?.Oferta?.[0] && (
+              <button onClick={desactivarOferta} disabled={savingOferta}
+                className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50 text-sm">
+                Desactivar
+              </button>
+            )}
+            <button onClick={guardarOferta} disabled={savingOferta || !ofertaForm.valor || !ofertaForm.fecha_inicio || !ofertaForm.fecha_fin}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm">
+              {savingOferta && <Loader2 size={14} className="animate-spin" />}
+              {savingOferta ? 'Guardando...' : ofertaProducto?.Oferta?.[0] ? 'Actualizar' : 'Crear Oferta'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <div className="flex items-center justify-between mb-6">
@@ -376,7 +484,15 @@ export default function Productos() {
             {productos.map((p) => (
               <tr key={p.id} className="border-b hover:bg-slate-50">
                 <td className="p-3 text-slate-400 text-xs">{p.codigo_barras}</td>
-                <td className="p-3 font-medium">{p.nombre}</td>
+                <td className="p-3">
+                  <span className="font-medium">{p.nombre}</span>
+                  {p.Oferta?.[0] && (
+                    <span className="ml-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                      <Percent size={10} />
+                      {p.Oferta[0].tipo === 'porcentaje' ? `${p.Oferta[0].valor}%` : `$${p.Oferta[0].valor}`}
+                    </span>
+                  )}
+                </td>
                 <td className="p-3 text-right">${parseFloat(p.precio_costo).toFixed(2)}</td>
                 <td className="p-3 text-right">${parseFloat(p.precio_venta).toFixed(2)}</td>
                 <td className="p-3 text-center">
@@ -403,6 +519,9 @@ export default function Productos() {
                   <div className="flex justify-center gap-1">
                     <button onClick={() => handleEdit(p)} className="p-1 text-blue-500 hover:bg-blue-50 rounded">
                       <Edit2 size={14} />
+                    </button>
+                    <button onClick={() => abrirOferta(p)} className={`p-1 rounded ${p.Oferta?.[0] ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100'}`}>
+                      <Percent size={14} />
                     </button>
                     <button onClick={() => handleDelete(p.id)} disabled={deleting === p.id}
                       className="p-1 text-red-500 hover:bg-red-50 rounded disabled:opacity-40">
