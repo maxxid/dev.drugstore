@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "npm --prefix frontend install && npm --prefix frontend run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "npm --prefix api install",
   "builds": [
     {
       "src": "api/index.js",
