@@ -5,17 +5,13 @@
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": "api/**"
+        "includeFiles": "api/**,frontend/dist/**"
       }
-    },
-    {
-      "src": "frontend/dist/**/*",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/index.js" },
     { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/(.*)", "dest": "/frontend/dist/index.html" }
   ]
 }
