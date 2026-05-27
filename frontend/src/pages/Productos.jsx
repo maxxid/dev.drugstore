@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import Toast from '../components/Toast';
-import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload, Loader2 } from 'lucide-react';
+import Modal from '../components/Modal';
+import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload, Loader2, Users, Clock, ChevronDown, Filter } from 'lucide-react';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -14,6 +16,11 @@ export default function Productos() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [proveedorFilter, setProveedorFilter] = useState('');
+  const [sortBy, setSortBy] = useState('');
+  const [historialProducto, setHistorialProducto] = useState(null);
+  const [historial, setHistorial] = useState([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
   const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
@@ -21,10 +28,17 @@ export default function Productos() {
   });
 
   const load = () => {
-    api.get('/productos', { params: { search } }).then((res) => setProductos(res.data));
+    const params = { search };
+    if (proveedorFilter) params.proveedor_id = proveedorFilter;
+    if (sortBy) params.sort = sortBy;
+    api.get('/productos', { params }).then((res) => setProductos(res.data));
   };
 
-  useEffect(() => { load(); }, [search]);
+  useEffect(() => {
+    api.get('/proveedores').then((res) => setProveedores(res.data));
+  }, []);
+
+  useEffect(() => { load(); }, [search, proveedorFilter, sortBy]);
 
   const cleanForm = (data) => {
     const cleaned = { ...data };
@@ -145,9 +159,58 @@ export default function Productos() {
     e.target.value = '';
   };
 
+  const verHistorial = async (producto) => {
+    setHistorialProducto(producto);
+    setHistorial([]);
+    setLoadingHistorial(true);
+    try {
+      const { data } = await api.get(`/productos/${producto.id}/historial-precios`);
+      setHistorial(data);
+    } catch (err) {
+      setToast({ type: 'error', message: 'Error al cargar historial' });
+    } finally {
+      setLoadingHistorial(false);
+    }
+  };
+
   return (
     <div>
       <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
+
+      <Modal
+        open={!!historialProducto}
+        onClose={() => setHistorialProducto(null)}
+        title={`Historial de precios: ${historialProducto?.nombre || ''}`}
+      >
+        {loadingHistorial ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={24} className="animate-spin text-slate-400" />
+          </div>
+        ) : historial.length === 0 ? (
+          <p className="text-slate-400 text-center py-4">Sin historial de compras</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-slate-500">
+                <th className="pb-2 font-medium">Proveedor</th>
+                <th className="pb-2 font-medium text-right">Precio</th>
+                <th className="pb-2 font-medium text-center">Cant.</th>
+                <th className="pb-2 font-medium text-right">Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historial.map((h, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="py-2">{h.proveedor}</td>
+                  <td className="py-2 text-right font-medium">${h.precio.toFixed(2)}</td>
+                  <td className="py-2 text-center">{h.cantidad}</td>
+                  <td className="py-2 text-right text-slate-400 text-xs">{new Date(h.fecha).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Modal>
 
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-slate-800">Productos</h2>
@@ -259,14 +322,40 @@ export default function Productos() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-        <div className="relative">
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por nombre o codigo..."
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+        <div className="relative">
+          <select
+            value={proveedorFilter}
+            onChange={(e) => setProveedorFilter(e.target.value)}
+            className="appearance-none pl-3 pr-8 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-600 bg-white"
+          >
+            <option value="">Todos los proveedores</option>
+            {proveedores.map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+          <Filter size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+        </div>
+        <div className="relative">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="appearance-none pl-3 pr-8 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-600 bg-white"
+          >
+            <option value="">Orden: Nombre</option>
+            <option value="stock_asc">Stock ↑</option>
+            <option value="stock_desc">Stock ↓</option>
+            <option value="weekly_movement">Movimiento semanal</option>
+          </select>
+          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
       </div>
 
@@ -279,6 +368,7 @@ export default function Productos() {
               <th className="text-right p-3 text-slate-500 font-medium">P. Costo</th>
               <th className="text-right p-3 text-slate-500 font-medium">P. Venta</th>
               <th className="text-center p-3 text-slate-500 font-medium">Stock</th>
+              <th className="text-center p-3 text-slate-500 font-medium">Proveedores</th>
               <th className="text-center p-3 text-slate-500 font-medium">Acciones</th>
             </tr>
           </thead>
@@ -296,6 +386,19 @@ export default function Productos() {
                     {p.stock}
                   </span>
                 </td>
+                <td className="p-3 text-center">
+                  {p.ProductoProveedors?.length > 0 ? (
+                    <button
+                      onClick={() => verHistorial(p)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                    >
+                      <Users size={11} />
+                      {p.ProductoProveedors.length}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-300">—</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <div className="flex justify-center gap-1">
                     <button onClick={() => handleEdit(p)} className="p-1 text-blue-500 hover:bg-blue-50 rounded">
@@ -311,7 +414,7 @@ export default function Productos() {
             ))}
             {productos.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center py-8 text-slate-400">
+                <td colSpan={7} className="text-center py-8 text-slate-400">
                   <Package size={24} className="mx-auto mb-2" />
                   No hay productos registrados
                 </td>

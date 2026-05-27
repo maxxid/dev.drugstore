@@ -147,6 +147,18 @@ const Insight = sequelize.define('Insight', {
   datos_json: { type: DataTypes.JSONB },
 }, { tableName: 'insights', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
+const ProductoProveedor = sequelize.define('ProductoProveedor', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  producto_id: { type: DataTypes.INTEGER, allowNull: false },
+  proveedor_id: { type: DataTypes.INTEGER, allowNull: false },
+  ultimo_precio: { type: DataTypes.DECIMAL(10, 2) },
+  fecha_ultimo_precio: { type: DataTypes.DATE },
+}, {
+  tableName: 'productos_proveedores',
+  timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at',
+  indexes: [{ unique: true, fields: ['producto_id', 'proveedor_id'] }],
+});
+
 Categoria.hasMany(Producto, { foreignKey: 'categoria_id' });
 Producto.belongsTo(Categoria, { foreignKey: 'categoria_id' });
 Proveedor.hasMany(Compra, { foreignKey: 'proveedor_id' });
@@ -169,6 +181,10 @@ Producto.hasMany(StockMovimiento, { foreignKey: 'producto_id' });
 StockMovimiento.belongsTo(Producto, { foreignKey: 'producto_id' });
 Usuario.hasMany(CierreCaja, { foreignKey: 'usuario_id' });
 CierreCaja.belongsTo(Usuario, { foreignKey: 'usuario_id' });
+Producto.hasMany(ProductoProveedor, { foreignKey: 'producto_id' });
+ProductoProveedor.belongsTo(Producto, { foreignKey: 'producto_id' });
+Proveedor.hasMany(ProductoProveedor, { foreignKey: 'proveedor_id' });
+ProductoProveedor.belongsTo(Proveedor, { foreignKey: 'proveedor_id' });
 
 // ─── Auth Middleware ───
 const auth = async (req, res, next) => {
@@ -229,12 +245,34 @@ app.post('/api/auth/register', async (req, res) => {
 // Productos
 app.get('/api/productos', auth, async (req, res) => {
   try {
-    const { search, categoria_id, stock_bajo } = req.query;
+    const { search, categoria_id, stock_bajo, proveedor_id, sort } = req.query;
     const where = { activo: true };
     if (search) where[Op.or] = [{ nombre: { [Op.iLike]: `%${search}%` } }, { codigo_barras: { [Op.iLike]: `%${search}%` } }];
     if (categoria_id) where.categoria_id = categoria_id;
     if (stock_bajo === 'true') where.stock = { [Op.lte]: literal('stock_minimo') };
-    const productos = await Producto.findAll({ where, include: [{ model: Categoria, attributes: ['nombre'] }], order: [['nombre', 'ASC']] });
+
+    const include = [
+      { model: Categoria, attributes: ['nombre'] },
+      { model: ProductoProveedor, include: [{ model: Proveedor, attributes: ['id', 'nombre'] }], separate: true },
+    ];
+
+    if (proveedor_id) {
+      const prodsIds = await ProductoProveedor.findAll({
+        where: { proveedor_id: parseInt(proveedor_id) },
+        attributes: ['producto_id'],
+        raw: true,
+      });
+      where.id = { [Op.in]: prodsIds.map((p) => p.producto_id) };
+    }
+
+    let order = [['nombre', 'ASC']];
+    if (sort === 'stock_asc') order = [['stock', 'ASC']];
+    else if (sort === 'stock_desc') order = [['stock', 'DESC']];
+    else if (sort === 'weekly_movement') {
+      order = [[fn('COALESCE', literal('(SELECT SUM("cantidad") FROM "detalle_ventas" dv JOIN "ventas" v ON v."id" = dv."venta_id" WHERE dv."producto_id" = "Producto"."id" AND v."fecha" >= NOW() - INTERVAL \'7 days\')'), 0), 'DESC']];
+    }
+
+    const productos = await Producto.findAll({ where, include, order, subQuery: !proveedor_id });
     res.json(productos);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
@@ -280,6 +318,40 @@ app.delete('/api/productos/:id', auth, async (req, res) => {
     if (!producto) return res.status(404).json({ error: 'Producto no encontrado' });
     await producto.update({ activo: false });
     res.json({ message: 'Producto desactivado' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Proveedores del producto
+app.get('/api/productos/:id/proveedores', auth, async (req, res) => {
+  try {
+    const proveedores = await ProductoProveedor.findAll({
+      where: { producto_id: req.params.id },
+      include: [{ model: Proveedor, attributes: ['id', 'nombre'] }],
+      order: [['fecha_ultimo_precio', 'DESC']],
+    });
+    res.json(proveedores);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Historial de precios
+app.get('/api/productos/:id/historial-precios', auth, async (req, res) => {
+  try {
+    const compras = await DetalleCompra.findAll({
+      where: { producto_id: req.params.id },
+      include: [
+        { model: Compra, attributes: ['fecha', 'proveedor_id'], include: [{ model: Proveedor, attributes: ['nombre'] }] },
+      ],
+      order: [[{ model: Compra }, 'fecha', 'DESC']],
+      limit: 50,
+    });
+    const historial = compras.map((dc) => ({
+      proveedor: dc.Compra?.Proveedor?.nombre || 'Desconocido',
+      proveedor_id: dc.Compra?.proveedor_id,
+      precio: parseFloat(dc.precio_costo),
+      fecha: dc.Compra?.fecha,
+      cantidad: dc.cantidad,
+    }));
+    res.json(historial);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -428,6 +500,12 @@ app.post('/api/compras', auth, async (req, res) => {
       await DetalleCompra.create({ compra_id: compra.id, producto_id: d.producto.id, cantidad: d.cantidad, precio_costo: d.precio_costo, subtotal: d.subtotal }, { transaction });
       await d.producto.update({ stock: d.producto.stock + d.cantidad, precio_costo: d.precio_costo }, { transaction });
       await StockMovimiento.create({ producto_id: d.producto.id, tipo: 'entrada', cantidad: d.cantidad, motivo: `Compra #${compra.id}`, usuario_id: req.usuario.id }, { transaction });
+      await ProductoProveedor.upsert({
+        producto_id: d.producto.id,
+        proveedor_id: parseInt(proveedor_id),
+        ultimo_precio: d.precio_costo,
+        fecha_ultimo_precio: new Date(),
+      }, { transaction });
     }
 
     await transaction.commit();
