@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+try { require('dotenv').config(); } catch (e) { /* no .env en produccion */ }
 
 const authRoutes = require('./routes/auth');
 const productoRoutes = require('./routes/productos');
