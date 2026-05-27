@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-const { Sequelize, DataTypes, Op, fn, col, literal, Model } = require('sequelize');
+const { Sequelize, DataTypes, Op, fn, col, literal } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
   dialect: 'postgres',
@@ -281,6 +283,84 @@ app.delete('/api/productos/:id', auth, async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// CSV Export/Import
+app.get('/api/productos/exportar', auth, async (req, res) => {
+  try {
+    const productos = await Producto.findAll({ where: { activo: true }, order: [['nombre', 'ASC']] });
+    const header = 'codigo_barras,nombre,descripcion,categoria_id,precio_costo,precio_venta,stock,stock_minimo';
+    const rows = productos.map((p) =>
+      [p.codigo_barras, `"${(p.nombre || '').replace(/"/g, '""')}"`, `"${(p.descripcion || '').replace(/"/g, '""')}"`, p.categoria_id || '', p.precio_costo, p.precio_venta, p.stock, p.stock_minimo].join(',')
+    );
+    const csv = [header, ...rows].join('\n') + '\n';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename=productos.csv');
+    res.send(csv);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/productos/importar', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+    const csvText = req.file.buffer.toString('utf-8');
+    const lines = csvText.split('\n').filter((l) => l.trim());
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV vacio o sin datos' });
+
+    const header = lines[0].toLowerCase();
+    const codigoIdx = header.split(',').findIndex((h) => h.trim() === 'codigo_barras');
+    const nombreIdx = header.split(',').findIndex((h) => h.trim() === 'nombre');
+
+    if (codigoIdx === -1 || nombreIdx === -1) {
+      return res.status(400).json({ error: 'CSV debe tener columnas codigo_barras y nombre' });
+    }
+
+    let creados = 0;
+    let actualizados = 0;
+    let errores = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i]);
+      if (cols.length < 2) { errores++; continue; }
+
+      const codigo = cols[codigoIdx]?.trim();
+      const nombre = cols[nombreIdx]?.trim();
+      if (!codigo || !nombre) { errores++; continue; }
+
+      const descIdx = header.split(',').findIndex((h) => h.trim() === 'descripcion');
+      const catIdx = header.split(',').findIndex((h) => h.trim() === 'categoria_id');
+      const pcIdx = header.split(',').findIndex((h) => h.trim() === 'precio_costo');
+      const pvIdx = header.split(',').findIndex((h) => h.trim() === 'precio_venta');
+      const stIdx = header.split(',').findIndex((h) => h.trim() === 'stock');
+      const smIdx = header.split(',').findIndex((h) => h.trim() === 'stock_minimo');
+
+      const data = {
+        codigo_barras: codigo,
+        nombre: nombre,
+        descripcion: descIdx >= 0 ? cols[descIdx]?.trim() || null : null,
+        categoria_id: catIdx >= 0 ? (parseInt(cols[catIdx]) || null) : null,
+        precio_costo: pcIdx >= 0 ? parseFloat(cols[pcIdx]) || 0 : 0,
+        precio_venta: pvIdx >= 0 ? parseFloat(cols[pvIdx]) || 0 : 0,
+        stock: stIdx >= 0 ? parseInt(cols[stIdx]) || 0 : 0,
+        stock_minimo: smIdx >= 0 ? parseInt(cols[smIdx]) || 5 : 5,
+      };
+
+      try {
+        const existente = await Producto.findOne({ where: { codigo_barras: data.codigo_barras } });
+        if (existente) {
+          await existente.update(data);
+          actualizados++;
+        } else {
+          await Producto.create(data);
+          creados++;
+        }
+      } catch (e) {
+        errores++;
+      }
+    }
+
+    res.json({ message: `Importacion completada: ${creados} creados, ${actualizados} actualizados, ${errores} errores` });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 // Ventas
 app.post('/api/ventas', auth, async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -499,5 +579,26 @@ app.post('/api/insights/generar', auth, async (req, res) => {
     res.status(201).json(insight);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = false; }
+      } else { current += char; }
+    } else {
+      if (char === '"') { inQuotes = true; }
+      else if (char === ',') { result.push(current); current = ''; }
+      else { current += char; }
+    }
+  }
+  result.push(current);
+  return result;
+}
 
 module.exports = app;

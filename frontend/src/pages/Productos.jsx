@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../api';
-import { Search, Plus, Edit2, Trash2, Package, X } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload } from 'lucide-react';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -8,6 +8,8 @@ export default function Productos() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
     precio_costo: '0', precio_venta: '0', stock: '0', stock_minimo: '5',
@@ -19,14 +21,26 @@ export default function Productos() {
 
   useEffect(() => { load(); }, [search]);
 
+  const cleanForm = (data) => {
+    const cleaned = { ...data };
+    if (cleaned.categoria_id === '' || cleaned.categoria_id === undefined) cleaned.categoria_id = null;
+    if (cleaned.descripcion === '') cleaned.descripcion = null;
+    if (cleaned.precio_costo === '' || cleaned.precio_costo === undefined) cleaned.precio_costo = '0';
+    if (cleaned.precio_venta === '' || cleaned.precio_venta === undefined) cleaned.precio_venta = '0';
+    if (cleaned.stock === '' || cleaned.stock === undefined) cleaned.stock = '0';
+    if (cleaned.stock_minimo === '' || cleaned.stock_minimo === undefined) cleaned.stock_minimo = '5';
+    return cleaned;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     try {
+      const payload = cleanForm(form);
       if (editing) {
-        await api.put(`/productos/${editing}`, form);
+        await api.put(`/productos/${editing}`, payload);
       } else {
-        await api.post('/productos', form);
+        await api.post('/productos', payload);
       }
       setShowForm(false);
       setEditing(null);
@@ -66,17 +80,82 @@ export default function Productos() {
     });
   };
 
+  const exportarCSV = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('https://kiosko-manager-jet.vercel.app/api/productos/exportar', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Error al exportar');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `productos_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMensaje('CSV exportado correctamente');
+      setTimeout(() => setMensaje(''), 3000);
+    } catch (err) {
+      setError('Error al exportar CSV');
+      setTimeout(() => setError(''), 3000);
+    }
+  };
+
+  const importarCSV = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setMensaje('');
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('https://kiosko-manager-jet.vercel.app/api/productos/importar', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Error al importar');
+      setMensaje(data.message || 'CSV importado correctamente');
+      setTimeout(() => setMensaje(''), 4000);
+      load();
+    } catch (err) {
+      setError(err.message || 'Error al importar CSV');
+      setTimeout(() => setError(''), 4000);
+    }
+    e.target.value = '';
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-slate-800">Productos</h2>
-        <button
-          onClick={() => { resetForm(); setEditing(null); setShowForm(!showForm); }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={18} /> Nuevo Producto
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportarCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+          >
+            <Download size={16} /> Exportar CSV
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+          >
+            <Upload size={16} /> Importar CSV
+          </button>
+          <input type="file" ref={fileInputRef} accept=".csv" onChange={importarCSV} className="hidden" />
+          <button
+            onClick={() => { resetForm(); setEditing(null); setShowForm(!showForm); }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={18} /> Nuevo Producto
+          </button>
+        </div>
       </div>
+
+      {mensaje && <div className="bg-green-50 text-green-700 p-3 rounded-lg mb-4 text-sm">{mensaje}</div>}
 
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
@@ -89,7 +168,7 @@ export default function Productos() {
           {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">{error}</div>}
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-slate-500 mb-1">Código de Barras *</label>
+              <label className="block text-sm text-slate-500 mb-1">Codigo de Barras *</label>
               <input
                 value={form.codigo_barras}
                 onChange={(e) => setForm({ ...form, codigo_barras: e.target.value })}
@@ -136,7 +215,7 @@ export default function Productos() {
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-500 mb-1">Stock Mínimo</label>
+              <label className="block text-sm text-slate-500 mb-1">Stock Minimo</label>
               <input
                 type="number" min="0"
                 value={form.stock_minimo}
@@ -162,7 +241,7 @@ export default function Productos() {
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre o código..."
+            placeholder="Buscar por nombre o codigo..."
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -172,7 +251,7 @@ export default function Productos() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50">
             <tr>
-              <th className="text-left p-3 text-slate-500 font-medium">Código</th>
+              <th className="text-left p-3 text-slate-500 font-medium">Codigo</th>
               <th className="text-left p-3 text-slate-500 font-medium">Nombre</th>
               <th className="text-right p-3 text-slate-500 font-medium">P. Costo</th>
               <th className="text-right p-3 text-slate-500 font-medium">P. Venta</th>
