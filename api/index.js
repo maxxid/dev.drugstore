@@ -27,8 +27,13 @@ const Usuario = sequelize.define('Usuario', {
 }, {
   tableName: 'usuarios',
   timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at',
-  defaultScope: { attributes: { exclude: ['password_hash'] } },
 });
+
+Usuario.prototype.toJSON = function() {
+  const values = { ...this.get() };
+  delete values.password_hash;
+  return values;
+};
 
 Usuario.prototype.validarPassword = async function(password) {
   return bcrypt.compare(password, this.password_hash);
