@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '../api';
-import { Search, Plus, Minus, Trash2, Printer, CreditCard, Banknote } from 'lucide-react';
+import Toast from '../components/Toast';
+import { Search, Plus, Minus, Trash2, Printer, CreditCard, Banknote, Loader2 } from 'lucide-react';
 
 export default function POS() {
   const [codigo, setCodigo] = useState('');
   const [cart, setCart] = useState([]);
   const [metodoPago, setMetodoPago] = useState('1');
-  const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [toast, setToast] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -18,6 +20,7 @@ export default function POS() {
   const agregarProducto = async () => {
     if (!codigo.trim()) return;
     setError('');
+    setScanning(true);
     try {
       const { data } = await api.get(`/productos/codigo/${codigo.trim()}`);
       const item = cart.find((i) => i.producto_id === data.id);
@@ -38,6 +41,8 @@ export default function POS() {
     } catch (err) {
       setError('Producto no encontrado');
       setTimeout(() => setError(''), 2000);
+    } finally {
+      setScanning(false);
     }
     inputRef.current?.focus();
   };
@@ -71,10 +76,9 @@ export default function POS() {
         metodo_pago_id: parseInt(metodoPago),
       });
 
-      setMensaje(`Venta completada! Ticket: ${data.numero_ticket} - Total: $${parseFloat(data.total).toFixed(2)}`);
+      setToast({ type: 'success', message: `Venta completada! Ticket: ${data.numero_ticket} - Total: $${parseFloat(data.total).toFixed(2)}` });
       setCart([]);
       setCodigo('');
-      setTimeout(() => setMensaje(''), 4000);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al procesar venta');
     } finally {
@@ -92,12 +96,11 @@ export default function POS() {
 
   return (
     <div className="flex gap-6 h-[calc(100vh-7rem)]">
+      <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
+
       <div className="flex-1 flex flex-col">
         <h2 className="text-2xl font-bold text-slate-800 mb-4">Punto de Venta</h2>
 
-        {mensaje && (
-          <div className="bg-green-50 text-green-700 p-4 rounded-lg mb-4 font-medium">{mensaje}</div>
-        )}
         {error && (
           <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-4">{error}</div>
         )}
@@ -111,15 +114,17 @@ export default function POS() {
               value={codigo}
               onChange={(e) => setCodigo(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Escanear código de barras..."
+              placeholder="Escanear codigo de barras..."
               className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
           <button
             onClick={agregarProducto}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+            disabled={scanning}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-60"
           >
-            Agregar
+            {scanning ? <Loader2 size={18} className="animate-spin" /> : null}
+            {scanning ? 'Buscando...' : 'Agregar'}
           </button>
         </div>
 
@@ -172,7 +177,7 @@ export default function POS() {
               {cart.length === 0 && (
                 <tr>
                   <td colSpan={5} className="text-center py-12 text-slate-400">
-                    Escanea un código de barras para comenzar
+                    Escanea un codigo de barras para comenzar
                   </td>
                 </tr>
               )}
@@ -200,7 +205,7 @@ export default function POS() {
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm text-slate-500 mb-1">Método de pago</label>
+          <label className="block text-sm text-slate-500 mb-1">Metodo de pago</label>
           <div className="grid grid-cols-3 gap-2">
             {[
               { id: '1', label: 'Efectivo', icon: Banknote },
@@ -228,7 +233,7 @@ export default function POS() {
           disabled={cart.length === 0 || loading}
           className="w-full py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
-          <Printer size={18} />
+          {loading ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
           {loading ? 'Procesando...' : `Cobrar $${total.toFixed(2)}`}
         </button>
 

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import api from '../api';
-import { Calculator } from 'lucide-react';
+import Toast from '../components/Toast';
+import { Calculator, Loader2 } from 'lucide-react';
 
 export default function CierreCaja() {
   const [totalReal, setTotalReal] = useState('');
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const handleCierre = async (e) => {
     e.preventDefault();
@@ -15,6 +17,7 @@ export default function CierreCaja() {
     try {
       const { data } = await api.post('/cierres', { total_real: parseFloat(totalReal) || 0 });
       setResultado(data);
+      setToast({ type: 'success', message: 'Cierre de caja realizado correctamente' });
     } catch (err) {
       setError(err.response?.data?.error || 'Error al cerrar caja');
     } finally {
@@ -24,6 +27,8 @@ export default function CierreCaja() {
 
   return (
     <div>
+      <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
+
       <h2 className="text-2xl font-bold text-slate-800 mb-6">Cierre de Caja</h2>
 
       <div className="max-w-md">
@@ -33,7 +38,7 @@ export default function CierreCaja() {
               <Calculator size={20} className="text-blue-600" />
             </div>
             <div>
-              <h3 className="font-semibold">Cierre del día</h3>
+              <h3 className="font-semibold">Cierre del dia</h3>
               <p className="text-xs text-slate-500">{new Date().toLocaleDateString()}</p>
             </div>
           </div>
@@ -68,7 +73,8 @@ export default function CierreCaja() {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-blue-500"
                 required autoFocus />
               <button type="submit" disabled={loading}
-                className="w-full py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                className="w-full flex items-center justify-center gap-2 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                {loading && <Loader2 size={18} className="animate-spin" />}
                 {loading ? 'Procesando...' : 'Realizar Cierre'}
               </button>
             </form>

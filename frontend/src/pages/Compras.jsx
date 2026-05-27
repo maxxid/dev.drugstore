@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
-import { Search, Plus, X, Truck } from 'lucide-react';
+import Toast from '../components/Toast';
+import { Search, Plus, X, Truck, Loader2 } from 'lucide-react';
 
 export default function Compras() {
   const [compras, setCompras] = useState([]);
@@ -9,6 +10,7 @@ export default function Compras() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
   const [proveedorId, setProveedorId] = useState('');
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
@@ -56,6 +58,7 @@ export default function Compras() {
         producto_id: i.producto_id, cantidad: i.cantidad, precio_costo: i.precio_costo,
       }))};
       await api.post('/compras', payload);
+      setToast({ type: 'success', message: 'Compra registrada correctamente' });
       setShowForm(false);
       setItems([]);
       setProveedorId('');
@@ -70,6 +73,8 @@ export default function Compras() {
 
   return (
     <div>
+      <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-slate-800">Compras</h2>
         <button onClick={() => setShowForm(!showForm)}
@@ -149,7 +154,8 @@ export default function Compras() {
           <div className="flex justify-between items-center">
             <span className="font-bold">Total: ${total.toFixed(2)}</span>
             <button onClick={handleSubmit} disabled={loading || items.length === 0 || !proveedorId}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              {loading && <Loader2 size={16} className="animate-spin" />}
               {loading ? 'Registrando...' : 'Registrar Compra'}
             </button>
           </div>

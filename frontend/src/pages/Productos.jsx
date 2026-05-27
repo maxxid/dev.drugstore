@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../api';
-import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload } from 'lucide-react';
+import Toast from '../components/Toast';
+import { Search, Plus, Edit2, Trash2, Package, X, Download, Upload, Loader2 } from 'lucide-react';
 
 export default function Productos() {
   const [productos, setProductos] = useState([]);
@@ -8,7 +9,11 @@ export default function Productos() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
-  const [mensaje, setMensaje] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
   const [form, setForm] = useState({
     codigo_barras: '', nombre: '', descripcion: '', categoria_id: '',
@@ -35,12 +40,15 @@ export default function Productos() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
     try {
       const payload = cleanForm(form);
       if (editing) {
         await api.put(`/productos/${editing}`, payload);
+        setToast({ type: 'success', message: 'Producto actualizado' });
       } else {
         await api.post('/productos', payload);
+        setToast({ type: 'success', message: 'Producto creado' });
       }
       setShowForm(false);
       setEditing(null);
@@ -48,6 +56,8 @@ export default function Productos() {
       load();
     } catch (err) {
       setError(err.response?.data?.error || 'Error al guardar');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,9 +77,16 @@ export default function Productos() {
   };
 
   const handleDelete = async (id) => {
-    if (confirm('Desactivar este producto?')) {
+    if (!confirm('Desactivar este producto?')) return;
+    setDeleting(id);
+    try {
       await api.delete(`/productos/${id}`);
+      setToast({ type: 'success', message: 'Producto desactivado' });
       load();
+    } catch (err) {
+      setToast({ type: 'error', message: err.response?.data?.error || 'Error al eliminar' });
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -81,6 +98,7 @@ export default function Productos() {
   };
 
   const exportarCSV = async () => {
+    setExporting(true);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch('https://kiosko-manager-jet.vercel.app/api/productos/exportar', {
@@ -94,19 +112,18 @@ export default function Productos() {
       a.download = `productos_${new Date().toISOString().split('T')[0]}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      setMensaje('CSV exportado correctamente');
-      setTimeout(() => setMensaje(''), 3000);
+      setToast({ type: 'success', message: 'CSV exportado correctamente' });
     } catch (err) {
-      setError('Error al exportar CSV');
-      setTimeout(() => setError(''), 3000);
+      setToast({ type: 'error', message: 'Error al exportar CSV' });
+    } finally {
+      setExporting(false);
     }
   };
 
   const importarCSV = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setError('');
-    setMensaje('');
+    setImporting(true);
     try {
       const token = localStorage.getItem('token');
       const formData = new FormData();
@@ -118,32 +135,38 @@ export default function Productos() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Error al importar');
-      setMensaje(data.message || 'CSV importado correctamente');
-      setTimeout(() => setMensaje(''), 4000);
+      setToast({ type: 'success', message: data.message || 'CSV importado' });
       load();
     } catch (err) {
-      setError(err.message || 'Error al importar CSV');
-      setTimeout(() => setError(''), 4000);
+      setToast({ type: 'error', message: err.message || 'Error al importar CSV' });
+    } finally {
+      setImporting(false);
     }
     e.target.value = '';
   };
 
   return (
     <div>
+      <Toast type={toast?.type} message={toast?.message} onClose={() => setToast(null)} />
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-slate-800">Productos</h2>
         <div className="flex gap-2">
           <button
             onClick={exportarCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 text-sm"
           >
-            <Download size={16} /> Exportar CSV
+            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {exporting ? 'Exportando...' : 'Exportar CSV'}
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-60 text-sm"
           >
-            <Upload size={16} /> Importar CSV
+            {importing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {importing ? 'Importando...' : 'Importar CSV'}
           </button>
           <input type="file" ref={fileInputRef} accept=".csv" onChange={importarCSV} className="hidden" />
           <button
@@ -154,8 +177,6 @@ export default function Productos() {
           </button>
         </div>
       </div>
-
-      {mensaje && <div className="bg-green-50 text-green-700 p-3 rounded-lg mb-4 text-sm">{mensaje}</div>}
 
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
@@ -228,8 +249,10 @@ export default function Productos() {
                 className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">
                 Cancelar
               </button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                {editing ? 'Actualizar' : 'Crear'}
+              <button type="submit" disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60">
+                {loading && <Loader2 size={16} className="animate-spin" />}
+                {loading ? 'Guardando...' : editing ? 'Actualizar' : 'Crear'}
               </button>
             </div>
           </form>
@@ -278,8 +301,9 @@ export default function Productos() {
                     <button onClick={() => handleEdit(p)} className="p-1 text-blue-500 hover:bg-blue-50 rounded">
                       <Edit2 size={14} />
                     </button>
-                    <button onClick={() => handleDelete(p.id)} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                      <Trash2 size={14} />
+                    <button onClick={() => handleDelete(p.id)} disabled={deleting === p.id}
+                      className="p-1 text-red-500 hover:bg-red-50 rounded disabled:opacity-40">
+                      {deleting === p.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                     </button>
                   </div>
                 </td>
